@@ -1,0 +1,139 @@
+/*
+Covid 19 Data Exploration using SQL
+
+Skills used: Joins, CTE's, Temp Tables, Aggregate Functions, Creating Views, Converting Data Types
+*/
+
+--selecting the data we will use for the analysis
+
+SELECT location, date, total_cases, new_cases, total_deaths, population
+FROM `vivid-willow-319712.covid_check.covid-data`
+ORDER BY location, date
+
+--or more accurately
+
+SELECT location, date, total_cases, new_cases, total_deaths, population
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+ORDER BY location, date
+
+--Total Cases vs Total Deaths
+--Finding the likelihood of death if you contract covid in Trinidad and Tobago
+
+SELECT Location, date, total_cases,total_deaths, (total_deaths/total_cases)*100 as DeathRate
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE location like '%rinidad%' and continent is not null 
+ORDER BY location, date DESC 
+
+--Death likelihood in Japan
+
+SELECT Location, date, total_cases,total_deaths, (total_deaths/total_cases)*100 as DeathRate
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE location = 'Japan' and continent is not null 
+ORDER BY location, date DESC 
+
+--Total Cases by Population
+--Percent of population infected with covid
+
+SELECT Location, date, Population, total_cases,  (total_cases/population)*100 as InfectionRate
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+ORDER BY location, date DESC
+
+--Checking highest infection rate by poulation
+
+SELECT location, Population,MAX(total_cases) as HighestInfectionCount,  MAX((total_cases/population))*100 as HighestInfectionRate
+FROM `vivid-willow-319712.covid_check.covid-data`
+GROUP BY location, Population
+ORDER BY HighestInfectionRate DESC
+
+--Which countries have the highest death count?
+
+SELECT location, MAX(cast(total_deaths as int)) as TotalDeathCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+GROUP BY location
+ORDER BY TotalDeathCount DESC
+
+-- Looking at contintents with the highest death count
+
+SELECT continent, MAX(cast(Total_deaths as int)) as TotalDeathCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+GROUP BY continent
+ORDER BY TotalDeathCount desc
+
+--looking at the highest death days of continents
+
+SELECT continent, MAX(cast(new_deaths as int)) as HighestDeathDay
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+GROUP BY continent
+ORDER BY HighestDeathDay desc
+
+--Confirming the global death rate
+
+SELECT SUM(new_cases) as GlobalCaseCount, SUM(cast(new_deaths as int)) as GlobalDeathCount, 
+    SUM(cast(new_deaths as int))/SUM(cast(new_cases as int))*100 as GlobalDeathRate
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null
+
+--Exploring vaccination numbers
+
+SELECT continent, date, location, new_vaccinations, SUM(CAST(new_vaccinations as int)) as RollingVaxCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null
+GROUP BY continent, date, location, new_vaccinations
+ORDER BY location, date, RollingVaxCount
+
+-- Checking when each continent started its vaccination drive and how many people shots were administered on that day
+
+WITH VaxRollout as (SELECT continent, location, date, SUM(CAST(new_vaccinations as int)) OVER(PARTITION BY location) as DayOneCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null and new_vaccinations is not null
+GROUP BY continent, location, date, new_vaccinations)
+(
+    SELECT DISTINCT vro.continent, vro.location, vro.DayOneCount , MIN(vro.date) OVER(PARTITION BY vro.location) as VaxRolloutDate
+    FROM VaxRollout vro
+    JOIN `vivid-willow-319712.covid_check.covid-data` cdc
+        ON vro.location = cdc.location
+        AND vro.date = cdc.date
+    GROUP BY vro. continent, location, vro.DayOneCount, vro.date
+    ORDER BY vro.DayOneCount DESC 
+)
+
+--Exploring vaccination rates by location using CTE
+
+WITH PopvsVax as (SELECT continent, location, date, population, new_vaccinations, SUM(CAST(new_vaccinations as int)) as RollingVaxCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+GROUP BY continent, location, date, population, new_vaccinations)
+(
+SELECT *, (RollingVaxCount/population)*100 as PercentVaxed
+FROM PopvsVax
+WHERE continent is not null and new_vaccinations is not null 
+GROUP BY continent, location, date, population, new_vaccinations, PopvsVax.RollingVaxCount 
+ORDER BY continent, location
+)
+
+--Using Temp Table to get above result
+
+CREATE TEMP TABLE IF NOT EXISTS `PercentVaccinated`
+(
+    Continent nvarchar(255),
+    Location nvarchar(255),
+    Date datetime,
+    Population numeric,
+    New_vaccinations numeric,
+    RollingVaxCount numeric
+    );
+INSERT INTO `PercentVaccinated`
+SELECT continent, location, date, population, new_vaccinations, SUM(CAST(new_vaccinations as int)) as RollingVaxCount
+FROM `vivid-willow-319712.covid_check.covid-data`
+WHERE continent is not null 
+GROUP BY continent, location, date, population, new_vaccinations
+
+SELECT *, (RollingVaxCount/population)*100
+FROM `PercentVaccinated`
+
+
